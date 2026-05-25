@@ -313,12 +313,9 @@
 </div>
 
 <script>
-// ── GitHub Gist configuration ─────────────────────────────────────────────────
-const GIST_ID      = 'e7beff2570c12161198c56fc61eeac01';
-const GIST_TOKEN   = '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';
-const GIST_FILE    = 'checklist.json';
-const GIST_URL     = `https://api.github.com/gists/${GIST_ID}`;
-const GIST_HEADERS = { 'Content-Type': 'application/json', 'Authorization': 'token ' + GIST_TOKEN };
+// ── Sync configuration ────────────────────────────────────────────────────────
+const WORKER_URL = 'YOUR_WORKER_URL'; // e.g. https://checklist-sync.yourname.workers.dev
+const WRITE_KEY  = 'arre-checklist-2026';
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_DATA = {
@@ -443,30 +440,39 @@ function activeTab() {
   return state.tabs.find(t => t.id === state.activeTabId) || state.tabs[0];
 }
 
-// ── GitHub Gist API helpers ───────────────────────────────────────────────────
+// ── Sync API helpers (via Cloudflare Worker) ──────────────────────────────────
 async function readGist() {
-  const res = await fetch(GIST_URL, { headers: GIST_HEADERS });
-  if (!res.ok) throw new Error('Gist read failed: ' + res.status);
-  const json = await res.json();
-  return JSON.parse(json.files[GIST_FILE].content);
+  const res = await fetch(WORKER_URL);
+  if (!res.ok) throw new Error('Read failed: ' + res.status);
+  return await res.json();
 }
 
 async function writeGist(data) {
-  const res = await fetch(GIST_URL, {
-    method: 'PATCH',
-    headers: GIST_HEADERS,
-    body: JSON.stringify({ files: { [GIST_FILE]: { content: JSON.stringify(data) } } })
+  const res = await fetch(WORKER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Write-Key': WRITE_KEY },
+    body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Gist write failed: ' + res.status);
+  if (!res.ok) throw new Error('Write failed: ' + res.status);
 }
 
 // ── Load state ────────────────────────────────────────────────────────────────
 async function loadState() {
   // Step 1: paint from localStorage cache immediately
+  // Try v2 first, then fall back to v1 (legacy key) if v2 is empty
   let hadCache = false;
   try {
-    const r = localStorage.getItem('phase1_checklist_v2');
-    if (r) { state = migrateState(JSON.parse(r)); hadCache = true; }
+    const r2 = localStorage.getItem('phase1_checklist_v2');
+    const r1 = localStorage.getItem('phase1_checklist_v1');
+    const r = r2 || r1; // prefer v2, fall back to v1
+    if (r) {
+      state = migrateState(JSON.parse(r));
+      // Migrate v1 data up to v2 key immediately
+      if (!r2 && r1) {
+        try { localStorage.setItem('phase1_checklist_v2', r1); } catch(_) {}
+      }
+      hadCache = true;
+    }
   } catch(_) {}
 
   if (hadCache) {
@@ -506,7 +512,12 @@ async function loadState() {
   } catch(e) {
     console.error('Gist load error:', e);
     if (!state) {
-      try { const r = localStorage.getItem('phase1_checklist_v2'); if (r) { state = migrateState(JSON.parse(r)); } } catch(_) {}
+      try {
+        const r2 = localStorage.getItem('phase1_checklist_v2');
+        const r1 = localStorage.getItem('phase1_checklist_v1');
+        const r = r2 || r1;
+        if (r) { state = migrateState(JSON.parse(r)); }
+      } catch(_) {}
       if (!state) state = migrateState(JSON.parse(JSON.stringify(DEFAULT_DATA)));
       render(); updateProgress();
     }
