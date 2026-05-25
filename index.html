@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Checklist</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Checklist">
+<meta name="theme-color" content="#1c1c1a">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -314,7 +320,7 @@
 
 <script>
 // ── Sync configuration ────────────────────────────────────────────────────────
-const WORKER_URL = 'https://checklist-sync.rshashank.workers.dev/'; // e.g. https://checklist-sync.yourname.workers.dev
+const WORKER_URL = 'YOUR_WORKER_URL'; // e.g. https://checklist-sync.yourname.workers.dev
 const WRITE_KEY  = 'arre-checklist-2026';
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1000,6 +1006,10 @@ function addTab() {
       }
     } catch(_) {}
   }, 30000);
+  // Register service worker for PWA installability
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 })();
 </script>
 </body>
