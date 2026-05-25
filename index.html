@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Phase 1 Reactivation — Team Checklist</title>
+<title>Team Checklist</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -46,11 +46,64 @@
     user-select: none;
   }
 
+  /* ── Tab bar ── */
+  .tab-bar-outer {
+    max-width: 720px; margin: 0 auto 12px;
+    display: flex; align-items: center; gap: 4px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .tab-bar-outer::-webkit-scrollbar { display: none; }
+
+  .tab-item {
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 11px; border-radius: 6px;
+    cursor: pointer; font-size: 12.5px; font-weight: 500;
+    color: var(--text-muted); background: transparent;
+    border: 0.5px solid transparent; white-space: nowrap; flex-shrink: 0;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    user-select: none;
+  }
+  .tab-item:hover { background: var(--add-hover); color: var(--text); }
+  .tab-item.active {
+    background: var(--surface); color: var(--text);
+    border-color: var(--border); box-shadow: var(--shadow);
+  }
+
+  .tab-name-editable {
+    outline: none; border: none; background: transparent;
+    font-size: 12.5px; font-weight: 500; color: inherit;
+    cursor: pointer; min-width: 30px; max-width: 160px;
+    white-space: nowrap; user-select: none; pointer-events: none;
+  }
+  .tab-item.active .tab-name-editable { cursor: text; user-select: text; pointer-events: auto; }
+
+  .tab-close {
+    width: 14px; height: 14px; border: none; background: transparent;
+    cursor: pointer; border-radius: 3px; display: flex; align-items: center;
+    justify-content: center; color: var(--text-faint); font-size: 9px;
+    padding: 0; flex-shrink: 0; opacity: 0;
+    transition: opacity 0.15s, background 0.12s, color 0.12s;
+  }
+  .tab-item:hover .tab-close, .tab-item.active .tab-close { opacity: 0.65; }
+  .tab-close:hover { background: var(--border); color: #c04040; opacity: 1 !important; }
+
+  .tab-add-btn {
+    width: 28px; height: 28px; border: none; background: transparent;
+    cursor: pointer; border-radius: 6px; display: flex; align-items: center;
+    justify-content: center; color: var(--text-faint); font-size: 18px;
+    padding: 0; flex-shrink: 0; margin-left: 2px;
+    transition: background 0.12s, color 0.12s;
+  }
+  .tab-add-btn:hover { background: var(--add-hover); color: var(--text-muted); }
+
   .page-header { max-width: 720px; margin: 0 auto 40px; }
 
   .page-title {
     font-size: 26px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px;
+    outline: none; background: transparent; cursor: text; user-select: text;
+    border-radius: 4px; display: block;
   }
+  .page-title:focus { background: rgba(100,100,80,0.06); padding: 1px 6px; margin: 0 -6px 5px; }
 
   .page-subtitle { font-size: 13px; color: var(--text-muted); }
 
@@ -234,8 +287,10 @@
 
 <div class="autosave-dot idle" id="autosave-dot">● Saved</div>
 
+<div class="tab-bar-outer" id="tab-bar"></div>
+
 <div class="page-header">
-  <div class="page-title">Phase 1 Reactivation — Team Checklist</div>
+  <div class="page-title" id="page-title" contenteditable="true" spellcheck="false">Phase 1 Reactivation — Team Checklist</div>
   <div class="progress-row">
     <div class="progress-bar"><div class="progress-fill" id="prog-fill"></div></div>
     <span class="progress-label" id="prog-label">0 / 0 done</span>
@@ -353,8 +408,30 @@ const DEFAULT_DATA = {
 let state = null;
 let uid = 0;
 let saveTimer = null;
-let activeBinId = JSONBIN_BIN_ID; // may be updated after first-time bin creation
+let activeBinId = JSONBIN_BIN_ID;
 const newId = () => 'x' + (++uid) + '_' + Date.now();
+
+/* ── migrate old { teams:[...] } format → { tabs:[...], activeTabId } ── */
+function migrateState(raw) {
+  if (!raw) return raw;
+  if (raw.teams && !raw.tabs) {
+    return {
+      tabs: [{
+        id: 'tab1',
+        name: 'Phase 1',
+        title: 'Phase 1 Reactivation — Team Checklist',
+        teams: raw.teams
+      }],
+      activeTabId: 'tab1'
+    };
+  }
+  return raw;
+}
+
+function activeTab() {
+  if (!state || !state.tabs) return null;
+  return state.tabs.find(t => t.id === state.activeTabId) || state.tabs[0];
+}
 
 // ── Setup banner (shown once until user hardcodes the bin ID) ────────────────
 function showSetupBanner(binId) {
@@ -417,12 +494,14 @@ async function loadState() {
   try {
     if (activeBinId) {
       // Bin already configured — just fetch
-      state = await readBin(activeBinId);
+      const raw = await readBin(activeBinId);
+      state = migrateState(raw);
       showDot('saved');
       setTimeout(() => showDot('idle'), 1800);
     } else {
       // First time — create the bin with default data
-      state = JSON.parse(JSON.stringify(DEFAULT_DATA));
+      const raw = JSON.parse(JSON.stringify(DEFAULT_DATA));
+      state = migrateState(raw);
       activeBinId = await createBin(state);
       // Persist locally so the banner keeps showing on refresh until they push
       localStorage.setItem('phase1_jsonbin_id', activeBinId);
@@ -435,8 +514,8 @@ async function loadState() {
     // Fallback: try localStorage, then default
     const cached = localStorage.getItem('phase1_jsonbin_id');
     if (cached && !activeBinId) { activeBinId = cached; }
-    try { const r = localStorage.getItem('phase1_checklist_v1'); if (r) { state = JSON.parse(r); } } catch(_) {}
-    if (!state) state = JSON.parse(JSON.stringify(DEFAULT_DATA));
+    try { const r = localStorage.getItem('phase1_checklist_v1'); if (r) { state = migrateState(JSON.parse(r)); } } catch(_) {}
+    if (!state) state = migrateState(JSON.parse(JSON.stringify(DEFAULT_DATA)));
     showDot('idle');
   }
 }
@@ -470,8 +549,9 @@ function showDot(s) {
 function markDirty() { autoSave(); }
 
 function updateProgress() {
+  const tab = activeTab();
   let total = 0, done = 0;
-  state.teams.forEach(t => t.sections.forEach(s => s.tasks.forEach(tk => { total++; if(tk.done) done++; })));
+  if (tab) tab.teams.forEach(t => t.sections.forEach(s => s.tasks.forEach(tk => { total++; if(tk.done) done++; })));
   const pct = total ? Math.round(done/total*100) : 0;
   document.getElementById('prog-fill').style.width = pct + '%';
   document.getElementById('prog-label').textContent = done + ' / ' + total + ' done';
@@ -484,7 +564,9 @@ let drag = {
 };
 
 function findTask(taskId) {
-  for (const team of state.teams)
+  const tab = activeTab();
+  if (!tab) return null;
+  for (const team of tab.teams)
     for (const sec of team.sections)
       for (const tk of sec.tasks)
         if (tk.id === taskId) return { team, sec, tk };
@@ -496,7 +578,8 @@ function applyDrop() {
   const src = findTask(drag.taskId);
   if (!src) return;
 
-  const destTeam = state.teams.find(t => t.id === drag.overTeamId);
+  const tab = activeTab();
+  const destTeam = tab && tab.teams.find(t => t.id === drag.overTeamId);
   const destSec = destTeam && destTeam.sections.find(s => s.id === drag.overSectionId);
   if (!destSec) return;
 
@@ -523,10 +606,21 @@ function applyDrop() {
 
 /* ── render ── */
 function render() {
+  renderTabs();
+
+  const tab = activeTab();
+
+  // Update editable page title
+  const titleEl = document.getElementById('page-title');
+  if (tab && document.activeElement !== titleEl) {
+    titleEl.textContent = tab.title || tab.name;
+  }
+
   const container = document.getElementById('teams-container');
   container.innerHTML = '';
+  if (!tab) { updateProgress(); return; }
 
-  state.teams.forEach(team => {
+  tab.teams.forEach(team => {
     const block = document.createElement('div');
     block.className = 'team-block';
 
@@ -551,7 +645,8 @@ function render() {
     delTeamBtn.title = 'Remove team';
     delTeamBtn.addEventListener('click', () => {
       if(confirm('Remove this entire team?')) {
-        state.teams = state.teams.filter(t => t.id !== team.id);
+        const tab = activeTab();
+        tab.teams = tab.teams.filter(t => t.id !== team.id);
         markDirty(); render(); updateProgress();
       }
     });
@@ -662,7 +757,7 @@ function render() {
         const handle = document.createElement('div');
         handle.className = 'drag-handle';
         handle.innerHTML = '&#8942;&#8942;';
-        handle.title = 'Drag to reorder';
+        handle.title = '';
 
         const cb = document.createElement('div');
         cb.className = 'checkbox' + (task.done ? ' checked' : '');
@@ -753,19 +848,103 @@ function clearAllIndicators() {
 }
 
 function addTeam() {
+  const tab = activeTab();
+  if (!tab) return;
   const palette = ['#1a5fa8','#0d6e4f','#855010','#6b3fa0','#a03030'];
-  const used = state.teams.map(t => t.color);
+  const used = tab.teams.map(t => t.color);
   const color = palette.find(c => !used.includes(c)) || palette[0];
-  state.teams.push({
+  tab.teams.push({
     id: newId(), name: 'New team', color,
     sections: [{ id: newId(), name: 'Tasks', tasks: [{ id: newId(), text: 'First task', done: false }] }]
   });
   markDirty(); render(); updateProgress();
 }
 
+// ── Tab management ────────────────────────────────────────────────────────────
+function renderTabs() {
+  const bar = document.getElementById('tab-bar');
+  bar.innerHTML = '';
+
+  state.tabs.forEach(tab => {
+    const item = document.createElement('div');
+    item.className = 'tab-item' + (tab.id === state.activeTabId ? ' active' : '');
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'tab-name-editable';
+    nameEl.contentEditable = 'true';
+    nameEl.spellcheck = false;
+    nameEl.textContent = tab.name;
+    nameEl.addEventListener('input', () => { tab.name = nameEl.textContent; markDirty(); });
+    nameEl.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); nameEl.blur(); } });
+    nameEl.addEventListener('mousedown', e => {
+      if (tab.id !== state.activeTabId) { e.preventDefault(); switchTab(tab.id); }
+    });
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'tab-close';
+    closeBtn.innerHTML = '✕';
+    closeBtn.title = 'Delete checklist';
+    closeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      if (state.tabs.length === 1) { alert("Can't delete the only checklist."); return; }
+      if (confirm(`Delete "${tab.name}" checklist and all its data?`)) {
+        const idx = state.tabs.findIndex(t => t.id === tab.id);
+        state.tabs = state.tabs.filter(t => t.id !== tab.id);
+        if (state.activeTabId === tab.id) {
+          state.activeTabId = state.tabs[Math.max(0, idx - 1)].id;
+        }
+        markDirty(); render(); updateProgress();
+      }
+    });
+
+    item.appendChild(nameEl);
+    item.appendChild(closeBtn);
+    bar.appendChild(item);
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'tab-add-btn';
+  addBtn.innerHTML = '+';
+  addBtn.title = 'New checklist';
+  addBtn.addEventListener('click', addTab);
+  bar.appendChild(addBtn);
+}
+
+function switchTab(tabId) {
+  state.activeTabId = tabId;
+  render();
+  updateProgress();
+}
+
+function addTab() {
+  const newTab = {
+    id: newId(),
+    name: 'New checklist',
+    title: 'New Checklist',
+    teams: []
+  };
+  state.tabs.push(newTab);
+  state.activeTabId = newTab.id;
+  markDirty(); render(); updateProgress();
+  // Focus the new tab name for quick rename
+  setTimeout(() => {
+    const items = document.querySelectorAll('.tab-item.active .tab-name-editable');
+    if (items.length) { items[0].focus(); document.execCommand('selectAll'); }
+  }, 50);
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
   await loadState();
+
+  // Wire up editable page title → saves to active tab's title field
+  const titleEl = document.getElementById('page-title');
+  titleEl.addEventListener('input', () => {
+    const tab = activeTab();
+    if (tab) { tab.title = titleEl.textContent; markDirty(); }
+  });
+  titleEl.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); titleEl.blur(); } });
+
   render();
   updateProgress();
 })();
