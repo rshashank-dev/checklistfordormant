@@ -530,6 +530,11 @@ async function loadState() {
       // Only apply if user hasn't made changes while we were fetching
       if (!pendingUserChanges) {
         state = migrateState(raw);
+        // Apply URL hash — the linked tab may only exist in JSONBin, not local cache
+        const hashTabId = window.location.hash.slice(1);
+        if (hashTabId && state.tabs.find(t => t.id === hashTabId)) {
+          state.activeTabId = hashTabId;
+        }
         try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
         render(); updateProgress();
       }
