@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Team Checklist</title>
+<title>Checklist</title>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -73,9 +73,9 @@
     outline: none; border: none; background: transparent;
     font-size: 12.5px; font-weight: 500; color: inherit;
     cursor: pointer; min-width: 30px; max-width: 160px;
-    white-space: nowrap; user-select: none; pointer-events: none;
+    white-space: nowrap; user-select: none;
   }
-  .tab-item.active .tab-name-editable { cursor: text; user-select: text; pointer-events: auto; }
+  .tab-item.active .tab-name-editable { cursor: text; user-select: text; }
 
   .tab-close {
     width: 14px; height: 14px; border: none; background: transparent;
@@ -871,13 +871,16 @@ function renderTabs() {
 
     const nameEl = document.createElement('div');
     nameEl.className = 'tab-name-editable';
-    nameEl.contentEditable = 'true';
+    // Only make the name editable on the active tab
+    nameEl.contentEditable = (tab.id === state.activeTabId) ? 'true' : 'false';
     nameEl.spellcheck = false;
     nameEl.textContent = tab.name;
     nameEl.addEventListener('input', () => { tab.name = nameEl.textContent; markDirty(); });
     nameEl.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); nameEl.blur(); } });
-    nameEl.addEventListener('mousedown', e => {
-      if (tab.id !== state.activeTabId) { e.preventDefault(); switchTab(tab.id); }
+
+    // Click on the tab-item (anywhere except the close button) switches to that tab
+    item.addEventListener('click', () => {
+      if (tab.id !== state.activeTabId) switchTab(tab.id);
     });
 
     const closeBtn = document.createElement('button');
@@ -912,6 +915,7 @@ function renderTabs() {
 
 function switchTab(tabId) {
   state.activeTabId = tabId;
+  markDirty(); // persist which tab is active
   render();
   updateProgress();
 }
