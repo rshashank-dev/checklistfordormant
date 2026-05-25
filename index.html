@@ -249,7 +249,13 @@
 </div>
 
 <script>
-const STORAGE_KEY = 'phase1_checklist_v1';
+// ── JSONBin configuration ────────────────────────────────────────────────────
+// After first-time setup, paste the bin ID printed in the banner below:
+const JSONBIN_BIN_ID    = null; // e.g. '6849abcd1234567890abcdef'
+const JSONBIN_MASTER_KEY = '$2a$10$PpLqck4FKeMWrHLguux0wuSIoXdPOOp.zzvCk298mG5jQ.xRWX1ti';
+const JSONBIN_BASE       = 'https://api.jsonbin.io/v3/b';
+const JSONBIN_HEADERS    = { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_MASTER_KEY };
+// ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_DATA = {
   teams: [
@@ -348,20 +354,112 @@ const DEFAULT_DATA = {
 let state = null;
 let uid = 0;
 let saveTimer = null;
+let activeBinId = JSONBIN_BIN_ID; // may be updated after first-time bin creation
 const newId = () => 'x' + (++uid) + '_' + Date.now();
 
-function loadState() {
-  try { const r = localStorage.getItem(STORAGE_KEY); if (r) { state = JSON.parse(r); return; } } catch(e) {}
-  state = JSON.parse(JSON.stringify(DEFAULT_DATA));
+// ── Setup banner (shown once until user hardcodes the bin ID) ────────────────
+function showSetupBanner(binId) {
+  const existing = document.getElementById('setup-banner');
+  if (existing) existing.remove();
+  const banner = document.createElement('div');
+  banner.id = 'setup-banner';
+  banner.style.cssText = [
+    'position:fixed;bottom:0;left:0;right:0;z-index:9999',
+    'background:#1D9E75;color:#fff;padding:14px 20px',
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+    'font-size:13px;line-height:1.6;box-shadow:0 -2px 12px rgba(0,0,0,0.2)',
+  ].join(';');
+  banner.innerHTML = `
+    <strong>✅ JSONBin connected — one-time setup needed</strong><br>
+    A shared bin was created. Open your <code>checklist.html</code>, find the line<br>
+    <code style="background:rgba(0,0,0,0.2);padding:2px 6px;border-radius:3px">const JSONBIN_BIN_ID = null;</code>
+    and replace <code>null</code> with <code>"${binId}"</code>, then push to GitHub.<br>
+    After that, all devices will share the same data automatically.
+    <button onclick="this.closest('#setup-banner').remove()"
+      style="float:right;background:rgba(0,0,0,0.25);border:none;color:#fff;
+             padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;margin-top:2px">
+      Got it
+    </button>`;
+  document.body.appendChild(banner);
 }
 
+// ── JSONBin API helpers ──────────────────────────────────────────────────────
+async function createBin(data) {
+  const res = await fetch(JSONBIN_BASE, {
+    method: 'POST',
+    headers: { ...JSONBIN_HEADERS, 'X-Bin-Name': 'phase1-checklist', 'X-Bin-Private': 'true' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error('Failed to create bin: ' + res.status);
+  const json = await res.json();
+  return json.metadata.id;
+}
+
+async function readBin(binId) {
+  const res = await fetch(`${JSONBIN_BASE}/${binId}/latest`, { headers: JSONBIN_HEADERS });
+  if (!res.ok) throw new Error('Failed to read bin: ' + res.status);
+  const json = await res.json();
+  return json.record;
+}
+
+async function writeBin(binId, data) {
+  const res = await fetch(`${JSONBIN_BASE}/${binId}`, {
+    method: 'PUT',
+    headers: JSONBIN_HEADERS,
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error('Failed to write bin: ' + res.status);
+}
+
+// ── Load state (async, replaces old loadState) ───────────────────────────────
+async function loadState() {
+  showDot('saving'); // use as "loading…" indicator
+  document.getElementById('autosave-dot').textContent = '● Loading…';
+  try {
+    if (activeBinId) {
+      // Bin already configured — just fetch
+      state = await readBin(activeBinId);
+      showDot('saved');
+      setTimeout(() => showDot('idle'), 1800);
+    } else {
+      // First time — create the bin with default data
+      state = JSON.parse(JSON.stringify(DEFAULT_DATA));
+      activeBinId = await createBin(state);
+      // Persist locally so the banner keeps showing on refresh until they push
+      localStorage.setItem('phase1_jsonbin_id', activeBinId);
+      showDot('saved');
+      setTimeout(() => showDot('idle'), 1800);
+      showSetupBanner(activeBinId);
+    }
+  } catch(e) {
+    console.error('JSONBin load error:', e);
+    // Fallback: try localStorage, then default
+    const cached = localStorage.getItem('phase1_jsonbin_id');
+    if (cached && !activeBinId) { activeBinId = cached; }
+    try { const r = localStorage.getItem('phase1_checklist_v1'); if (r) { state = JSON.parse(r); } } catch(_) {}
+    if (!state) state = JSON.parse(JSON.stringify(DEFAULT_DATA));
+    showDot('idle');
+  }
+}
+
+// ── Auto-save (async, debounced) ─────────────────────────────────────────────
 function autoSave() {
   clearTimeout(saveTimer);
   showDot('saving');
-  saveTimer = setTimeout(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); showDot('saved'); setTimeout(() => showDot('idle'), 1800); }
-    catch(e) { showDot('idle'); }
-  }, 700);
+  saveTimer = setTimeout(async () => {
+    try {
+      if (activeBinId) {
+        await writeBin(activeBinId, state);
+      }
+      // Also keep a local cache for resilience
+      try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
+      showDot('saved');
+      setTimeout(() => showDot('idle'), 1800);
+    } catch(e) {
+      console.error('JSONBin save error:', e);
+      showDot('idle');
+    }
+  }, 800);
 }
 
 function showDot(s) {
@@ -621,11 +719,12 @@ function render() {
       addRow.className = 'add-task-row';
       addRow.innerHTML = '<span style="font-size:14px;line-height:1">+</span> Add task';
       addRow.addEventListener('click', () => {
-        section.tasks.push({ id: newId(), text: 'New task', done: false });
+        const newTask = { id: newId(), text: 'New task', done: false };
+        section.tasks.push(newTask);
         markDirty(); render(); updateProgress();
         setTimeout(() => {
-          const all = document.querySelectorAll('.task-text');
-          if(all.length) { const last = all[all.length-1]; last.focus(); document.execCommand('selectAll'); }
+          const newText = document.querySelector(`.task[data-task-id="${newTask.id}"] .task-text`);
+          if (newText) { newText.focus(); document.execCommand('selectAll'); }
         }, 50);
       });
 
@@ -665,9 +764,12 @@ function addTeam() {
   markDirty(); render(); updateProgress();
 }
 
-loadState();
-render();
-updateProgress();
+// ── Boot ──────────────────────────────────────────────────────────────────────
+(async () => {
+  await loadState();
+  render();
+  updateProgress();
+})();
 </script>
 </body>
 </html>
