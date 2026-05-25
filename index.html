@@ -87,6 +87,16 @@
   .tab-item:hover .tab-close, .tab-item.active .tab-close { opacity: 0.65; }
   .tab-close:hover { background: var(--border); color: #c04040; opacity: 1 !important; }
 
+  .tab-share {
+    width: 14px; height: 14px; border: none; background: transparent;
+    cursor: pointer; border-radius: 3px; display: flex; align-items: center;
+    justify-content: center; color: var(--text-faint); font-size: 10px;
+    padding: 0; flex-shrink: 0; opacity: 0;
+    transition: opacity 0.15s, background 0.12s, color 0.12s;
+  }
+  .tab-item.active .tab-share { opacity: 0.55; }
+  .tab-share:hover { background: var(--border); color: var(--check-active); opacity: 1 !important; }
+
   .tab-add-btn {
     width: 28px; height: 28px; border: none; background: transparent;
     cursor: pointer; border-radius: 6px; display: flex; align-items: center;
@@ -938,7 +948,21 @@ function renderTabs() {
       }
     });
 
+    const shareBtn = document.createElement('button');
+    shareBtn.className = 'tab-share';
+    shareBtn.innerHTML = '⎘';
+    shareBtn.title = 'Copy link to this tab';
+    shareBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const url = location.href.split('#')[0] + '#' + tab.id;
+      navigator.clipboard.writeText(url).then(() => {
+        shareBtn.textContent = '✓';
+        setTimeout(() => { shareBtn.textContent = '⎘'; }, 1800);
+      });
+    });
+
     item.appendChild(nameEl);
+    item.appendChild(shareBtn);
     item.appendChild(closeBtn);
     bar.appendChild(item);
   });
@@ -953,7 +977,8 @@ function renderTabs() {
 
 function switchTab(tabId) {
   state.activeTabId = tabId;
-  markDirty(); // persist which tab is active
+  history.replaceState(null, '', '#' + tabId);
+  markDirty();
   render();
   updateProgress();
 }
@@ -967,6 +992,7 @@ function addTab() {
   };
   state.tabs.push(newTab);
   state.activeTabId = newTab.id;
+  history.replaceState(null, '', '#' + newTab.id);
   markDirty(); render(); updateProgress();
   // Focus the new tab name for quick rename
   setTimeout(() => {
@@ -979,6 +1005,12 @@ function addTab() {
 (async () => {
   await loadState();
 
+  // If URL has a tab hash, jump to that tab
+  const hashTabId = window.location.hash.slice(1);
+  if (hashTabId && state.tabs && state.tabs.find(t => t.id === hashTabId)) {
+    state.activeTabId = hashTabId;
+  }
+
   // Wire up editable page title → saves to active tab's title field
   const titleEl = document.getElementById('page-title');
   titleEl.addEventListener('input', () => {
@@ -989,6 +1021,26 @@ function addTab() {
 
   render();
   updateProgress();
+
+  // ── Periodic background sync (every 30s) ─────────────────────────────────
+  // Keeps multiple devices in sync without a manual refresh.
+  setInterval(async () => {
+    if (pendingUserChanges || !activeBinId) return; // skip if mid-edit
+    try {
+      const raw = await readBin(activeBinId);
+      if (pendingUserChanges) return; // user started editing while we were fetching
+      const freshJson = JSON.stringify(raw);
+      const currentJson = JSON.stringify(state);
+      if (freshJson !== currentJson) {
+        // Remote has newer data — apply it
+        state = migrateState(raw);
+        try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
+        render(); updateProgress();
+        // Flash "Saved" briefly to signal an external update was received
+        showDot('saved'); setTimeout(() => showDot('idle'), 1800);
+      }
+    } catch(_) {} // silent fail — don't disturb the user on network errors
+  }, 30000);
 })();
 </script>
 </body>
