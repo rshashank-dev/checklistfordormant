@@ -465,7 +465,7 @@ async function loadState() {
   // Step 1: paint from localStorage cache immediately
   let hadCache = false;
   try {
-    const r = localStorage.getItem('phase1_checklist_v1');
+    const r = localStorage.getItem('phase1_checklist_v2');
     if (r) { state = migrateState(JSON.parse(r)); hadCache = true; }
   } catch(_) {}
 
@@ -490,7 +490,7 @@ async function loadState() {
         render(); updateProgress();
       }
       await writeGist(state);
-      try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
+      try { localStorage.setItem('phase1_checklist_v2', JSON.stringify(state)); } catch(_) {}
     } else if (!pendingUserChanges) {
       state = migrateState(raw);
       // Apply URL hash — linked tab may only exist in Gist, not local cache
@@ -498,7 +498,7 @@ async function loadState() {
       if (hashTabId && state.tabs.find(t => t.id === hashTabId)) {
         state.activeTabId = hashTabId;
       }
-      try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
+      try { localStorage.setItem('phase1_checklist_v2', JSON.stringify(state)); } catch(_) {}
       render(); updateProgress();
     }
 
@@ -506,7 +506,7 @@ async function loadState() {
   } catch(e) {
     console.error('Gist load error:', e);
     if (!state) {
-      try { const r = localStorage.getItem('phase1_checklist_v1'); if (r) { state = migrateState(JSON.parse(r)); } } catch(_) {}
+      try { const r = localStorage.getItem('phase1_checklist_v2'); if (r) { state = migrateState(JSON.parse(r)); } } catch(_) {}
       if (!state) state = migrateState(JSON.parse(JSON.stringify(DEFAULT_DATA)));
       render(); updateProgress();
     }
@@ -521,7 +521,7 @@ function autoSave() {
   saveTimer = setTimeout(async () => {
     try {
       await writeGist(state);
-      try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
+      try { localStorage.setItem('phase1_checklist_v2', JSON.stringify(state)); } catch(_) {}
       pendingUserChanges = false;
       showDot('saved');
       setTimeout(() => showDot('idle'), 1800);
@@ -541,7 +541,7 @@ function showDot(s) {
 function markDirty() {
   pendingUserChanges = true;
   // Write to localStorage immediately so cache is always up-to-date
-  try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
+  try { localStorage.setItem('phase1_checklist_v2', JSON.stringify(state)); } catch(_) {}
   autoSave();
 }
 
@@ -983,7 +983,7 @@ function addTab() {
       const currentJson = JSON.stringify(state);
       if (freshJson !== currentJson) {
         state = migrateState(raw);
-        try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
+        try { localStorage.setItem('phase1_checklist_v2', JSON.stringify(state)); } catch(_) {}
         render(); updateProgress();
         showDot('saved'); setTimeout(() => showDot('idle'), 1800);
       }
