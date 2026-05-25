@@ -408,6 +408,7 @@ const DEFAULT_DATA = {
 let state = null;
 let uid = 0;
 let saveTimer = null;
+let pendingUserChanges = false; // true while user has unsaved changes in memory
 let activeBinId = JSONBIN_BIN_ID;
 const newId = () => 'x' + (++uid) + '_' + Date.now();
 
@@ -489,33 +490,65 @@ async function writeBin(binId, data) {
 
 // ── Load state (async, replaces old loadState) ───────────────────────────────
 async function loadState() {
-  showDot('saving'); // use as "loading…" indicator
-  document.getElementById('autosave-dot').textContent = '● Loading…';
+  // ── Step 1: paint from localStorage cache immediately (no wait) ──
+  let hadCache = false;
+  try {
+    const r = localStorage.getItem('phase1_checklist_v1');
+    if (r) {
+      state = migrateState(JSON.parse(r));
+      hadCache = true;
+    }
+  } catch(_) {}
+
+  if (hadCache) {
+    // Render right away so user sees data in <10ms
+    render(); updateProgress();
+    // Show a quiet "Syncing…" while we fetch fresh data in the background
+    const d = document.getElementById('autosave-dot');
+    d.className = 'autosave-dot saving';
+    d.textContent = '● Syncing…';
+  } else {
+    // First ever load — show Loading… and block until we have data
+    showDot('saving');
+    document.getElementById('autosave-dot').textContent = '● Loading…';
+  }
+
+  // ── Step 2: fetch from JSONBin in the background ──
   try {
     if (activeBinId) {
-      // Bin already configured — just fetch
       const raw = await readBin(activeBinId);
-      state = migrateState(raw);
+      // Only apply if user hasn't made changes while we were fetching
+      if (!pendingUserChanges) {
+        state = migrateState(raw);
+        try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
+        render(); updateProgress();
+      }
       showDot('saved');
       setTimeout(() => showDot('idle'), 1800);
     } else {
       // First time — create the bin with default data
-      const raw = JSON.parse(JSON.stringify(DEFAULT_DATA));
-      state = migrateState(raw);
+      if (!state) {
+        state = migrateState(JSON.parse(JSON.stringify(DEFAULT_DATA)));
+        render(); updateProgress();
+      }
       activeBinId = await createBin(state);
       // Persist locally so the banner keeps showing on refresh until they push
       localStorage.setItem('phase1_jsonbin_id', activeBinId);
+      try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
       showDot('saved');
       setTimeout(() => showDot('idle'), 1800);
       showSetupBanner(activeBinId);
     }
   } catch(e) {
     console.error('JSONBin load error:', e);
-    // Fallback: try localStorage, then default
+    // JSONBin failed — if we already painted from cache, stay on it
     const cached = localStorage.getItem('phase1_jsonbin_id');
     if (cached && !activeBinId) { activeBinId = cached; }
-    try { const r = localStorage.getItem('phase1_checklist_v1'); if (r) { state = migrateState(JSON.parse(r)); } } catch(_) {}
-    if (!state) state = migrateState(JSON.parse(JSON.stringify(DEFAULT_DATA)));
+    if (!state) {
+      try { const r = localStorage.getItem('phase1_checklist_v1'); if (r) { state = migrateState(JSON.parse(r)); } } catch(_) {}
+      if (!state) state = migrateState(JSON.parse(JSON.stringify(DEFAULT_DATA)));
+      render(); updateProgress();
+    }
     showDot('idle');
   }
 }
@@ -531,7 +564,7 @@ function autoSave() {
       }
       // Also keep a local cache for resilience
       try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
-      showDot('saved');
+      pendingUserChanges = false; // clear — JSONBin is now in sync      showDot('saved');
       setTimeout(() => showDot('idle'), 1800);
     } catch(e) {
       console.error('JSONBin save error:', e);
@@ -546,7 +579,12 @@ function showDot(s) {
   d.textContent = s === 'saving' ? '● Saving\u2026' : '● Saved';
 }
 
-function markDirty() { autoSave(); }
+function markDirty() {
+  pendingUserChanges = true;
+  // Write to localStorage immediately so cache is always up-to-date
+  try { localStorage.setItem('phase1_checklist_v1', JSON.stringify(state)); } catch(_) {}
+  autoSave();
+}
 
 function updateProgress() {
   const tab = activeTab();
