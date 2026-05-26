@@ -275,6 +275,65 @@
 
   .task.done .task-text { color: var(--text-faint); text-decoration: line-through; }
 
+  /* ── Task notes ── */
+  .task-wrapper { display: flex; flex-direction: column; }
+
+  .task-notes-area {
+    max-height: 0; overflow: hidden;
+    transition: max-height 0.2s ease, padding 0.2s ease;
+    padding: 0 10px 0 52px;
+  }
+  .task-notes-area.open {
+    max-height: 300px;
+    padding: 6px 10px 10px 52px;
+  }
+
+  .task-notes-input {
+    width: 100%; min-height: 64px;
+    background: var(--add-hover);
+    border: 0.5px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12.5px; line-height: 1.6;
+    color: var(--text-muted);
+    resize: vertical; outline: none;
+    font-family: inherit;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .task-notes-input:focus {
+    border-color: var(--check-active);
+    color: var(--text);
+  }
+  .task-notes-input::placeholder { color: var(--text-faint); }
+
+  /* dot indicator on tasks that have notes */
+  .notes-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--check-active); flex-shrink: 0;
+    margin-top: 7px; opacity: 0.7;
+  }
+
+  .task-body { cursor: default; }
+
+  /* notes toggle button */
+  .notes-toggle-btn {
+    width: 24px; height: 24px; border: none; background: transparent;
+    cursor: pointer; border-radius: 5px; display: flex; align-items: center;
+    justify-content: center; color: var(--text-faint); font-size: 13px;
+    padding: 0; flex-shrink: 0; opacity: 0;
+    transition: opacity 0.15s, background 0.12s, color 0.12s;
+  }
+  .task:hover .notes-toggle-btn { opacity: 1; }
+  .notes-toggle-btn.has-notes { opacity: 0.7; color: var(--check-active); }
+  .notes-toggle-btn.open { opacity: 1; color: var(--check-active); }
+  .notes-toggle-btn svg {
+    transition: transform 0.2s ease;
+  }
+  .notes-toggle-btn.open svg {
+    transform: rotate(180deg);
+  }
+  .notes-toggle-btn:hover { background: var(--add-hover); color: var(--check-active); opacity: 1; }
+
   .task-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
   .add-task-row {
@@ -323,7 +382,7 @@
 
 <script>
 // ── Sync configuration ────────────────────────────────────────────────────────
-const WORKER_URL = 'https://checklist-sync.rshashank.workers.dev/'; // e.g. https://checklist-sync.yourname.workers.dev
+const WORKER_URL = 'YOUR_WORKER_URL'; // e.g. https://checklist-sync.yourname.workers.dev
 const WRITE_KEY  = 'arre-checklist-2026';
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -802,6 +861,15 @@ function render() {
         const actions = document.createElement('div');
         actions.className = 'task-actions';
 
+        // Notes toggle button
+        const notesBtn = document.createElement('button');
+        notesBtn.className = 'notes-toggle-btn' + (task.notes ? ' has-notes' : '');
+        notesBtn.title = 'Toggle notes';
+        notesBtn.innerHTML = `<svg width="10" height="7" viewBox="0 0 10 7" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M1 1L5 5.5L9 1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>`;
+        notesBtn.style.fontSize = '13px';
+
         const delBtn = document.createElement('button');
         delBtn.className = 'btn-icon delete';
         delBtn.innerHTML = '✕';
@@ -811,12 +879,46 @@ function render() {
           markDirty(); render(); updateProgress();
         });
 
+        actions.appendChild(notesBtn);
         actions.appendChild(delBtn);
         row.appendChild(handle);
         row.appendChild(cb);
         row.appendChild(taskBody);
         row.appendChild(actions);
-        taskList.appendChild(row);
+
+        // Notes collapsible area
+        const notesArea = document.createElement('div');
+        notesArea.className = 'task-notes-area' + (task._notesOpen ? ' open' : '');
+
+        const notesInput = document.createElement('textarea');
+        notesInput.className = 'task-notes-input';
+        notesInput.placeholder = 'Add notes, links, context…';
+        notesInput.value = task.notes || '';
+        notesInput.addEventListener('input', () => {
+          task.notes = notesInput.value;
+          notesBtn.classList.toggle('has-notes', !!task.notes);
+          markDirty();
+        });
+        notesInput.addEventListener('click', e => e.stopPropagation());
+        notesInput.addEventListener('mousedown', e => e.stopPropagation());
+
+        notesArea.appendChild(notesInput);
+
+        // Toggle notes on button click
+        notesBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          task._notesOpen = !task._notesOpen;
+          notesArea.classList.toggle('open', task._notesOpen);
+          notesBtn.classList.toggle('open', task._notesOpen);
+          if (task._notesOpen) setTimeout(() => notesInput.focus(), 220);
+        });
+
+        // Wrap row + notes in a single container
+        const wrapper = document.createElement('div');
+        wrapper.className = 'task-wrapper';
+        wrapper.appendChild(row);
+        wrapper.appendChild(notesArea);
+        taskList.appendChild(wrapper);
 
         /* drop indicator after task */
         const indAfter = document.createElement('div');
@@ -824,7 +926,7 @@ function render() {
         indAfter.dataset.taskId = task.id;
         indAfter.dataset.pos = 'after';
         taskList.appendChild(indAfter);
-      });
+      }); // end section.tasks.forEach
 
       const addRow = document.createElement('div');
       addRow.className = 'add-task-row';
@@ -834,7 +936,7 @@ function render() {
         section.tasks.push(newTask);
         markDirty(); render(); updateProgress();
         setTimeout(() => {
-          const newText = document.querySelector(`.task[data-task-id="${newTask.id}"] .task-text`);
+        const newText = document.querySelector(`.task[data-task-id="${newTask.id}"] .task-text`);
           if (newText) { newText.focus(); document.execCommand('selectAll'); }
         }, 50);
       });
